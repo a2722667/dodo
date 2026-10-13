@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>一夜終極狼人語音助理</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --primary: #e74c3c;
+            --primary-hover: #c0392b;
+            --text: #ffffff;
+            --text-secondary: #b0b0b0;
+            --accent: #f1c40f;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 600px;
+            background: var(--card-bg);
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+            box-sizing: border-box;
+        }
+        h1 { text-align: center; margin-top: 0; color: var(--primary); font-size: 24px; }
+        h3 { border-bottom: 2px solid #333; padding-bottom: 8px; margin-top: 20px; font-size: 16px; color: var(--text-secondary); }
+        
+        .role-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .role-label {
+            background: #2c2c2c;
+            padding: 10px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            font-size: 14px;
+            user-select: none;
+            transition: background 0.2s;
+        }
+        .role-label:hover { background: #3c3c3c; }
+        .role-label input { margin-right: 8px; accent-color: var(--primary); }
+
+        .btn-group { display: flex; gap: 10px; margin-top: 20px; }
+        button {
+            flex: 1;
+            padding: 14px;
+            font-size: 16px;
+            font-weight: bold;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover { background: var(--primary-hover); }
+        button:disabled { background: #555; cursor: not-allowed; }
+        button.secondary { background: #7f8c8d; }
+        button.secondary:hover { background: #6c7a89; }
+
+        #stage-display {
+            text-align: center;
+            margin-top: 25px;
+            padding: 20px;
+            background: #252525;
+            border-radius: 8px;
+            border-left: 5px solid var(--accent);
+        }
+        #current-action { font-size: 20px; font-weight: bold; color: var(--accent); margin-bottom: 10px; }
+        #timer-display { font-size: 36px; font-weight: bold; color: #fff; margin-top: 10px; }
+        
+        .settings-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 15px;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+        .settings-row select {
+            background: #2c2c2c;
+            color: white;
+            border: 1px solid #444;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🐺 一夜終極狼人</h1>
+    
+    <div id="setup-view">
+        <h3>選擇這場遊戲投入的角色：</h3>
+        <div class="role-grid" id="role-checkboxes">
+            <!-- 透過 JS 動態生成角色清單 -->
+        </div>
+
+        <div class="settings-row">
+            <span>討論時間長度：</span>
+            <select id="discussion-time">
+                <option value="120">2 分鐘</option>
+                <option value="180" selected>3 分鐘</option>
+                <option value="240">4 分鐘</option>
+                <option value="300">5 分鐘</option>
+            </select>
+        </div>
+
+        <div class="btn-group">
+            <button onclick="startNightProcess()">開始夜晚流程</button>
+        </div>
+    </div>
+
+    <div id="game-view" style="display: none;">
+        <div id="stage-display">
+            <div id="current-action">準備開始...</div>
+            <div id="timer-display" style="display: none;">03:00</div>
+        </div>
+        
+        <div class="btn-group">
+            <button id="pause-btn" class="secondary" onclick="pauseSpeech()" style="display: none;">暫停 / 繼續</button>
+            <button class="secondary" onclick="resetGame()">返回重新設定</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 定義夜晚標準順序與對應台詞
+    const nightOrder = [
+        { id: 'doppelganger', name: '分身', script: '分身請睜眼。你可以查看一位玩家的身分，並變成該身分。分身請閉眼。', wait: 6000 },
+        { id: 'werewolf', name: '狼人', script: '狼人與美男子請睜眼，互相確認彼此。如果你是唯一的狼人，你可以查看一張中間的牌。', wait: 7000 },
+        { id: 'minion', name: '爪牙', script: '爪牙請睜眼。狼人請舉起你們的手，讓爪牙知道誰是狼人。爪牙請閉眼。', wait: 6000 },
+        { id: 'mason', name: '共濟會成員', script: '共濟會成員請睜眼，互相確認彼此。共濟會成員請閉眼。', wait: 5000 },
+        { id: 'seer', name: '預言家', script: '預言家請睜眼。你可以查看一位玩家的身分，或是兩張中間的牌。預言家請閉眼。', wait: 7000 },
+        { id: 'apprentice_seer', name: '見習預言家', script: '見習預言家請睜眼。你可以查看一張中間的牌。見習預言家請閉眼。', wait: 6000 },
+        { id: 'paranormal_investigator', name: '靈異調查員', script: '靈異調查員請睜眼。你可以查看最多兩位玩家的身分，如果你看到狼人或坦納，你必須立刻變成該身分。靈異調查員請閉眼。', wait: 8000 },
+        { id: 'robber', name: '盜賊', script: '盜賊請睜眼。你可以將你的身分與另一位玩家的身分對調，然後查看你現在的新身分。盜賊請閉眼。', wait: 7000 },
+        { id: 'witch', name: '女巫', script: '女巫請睜眼。你可以查看一張中間的牌，並將它放到任何一位玩家的面前。女巫請閉眼。', wait: 7000 },
+        { id: 'troublemaker', name: '搗蛋鬼', script: '搗蛋鬼請睜眼。你可以將兩位不同玩家的身分牌對調，但不能看它們。搗蛋鬼請閉眼。', wait: 7000 },
+        { id: 'drunk', name: '酒鬼', script: '酒鬼請睜眼。將你的酒鬼身分與中間的一張牌對調，不能看它。酒鬼請閉眼。', wait: 6000 },
+        { id: 'insomniac', name: '睡眠者', script: '睡眠者請睜眼。查看你自己的身分牌，確認它有沒有被調換過。睡眠者請閉眼。', wait: 6000 }
+    ];
+
+    // 初始化勾選選單
+    const roleContainer = document.getElementById('role-checkboxes');
+    nightOrder.forEach(role => {
+        const label = document.createElement('label');
+        label.className = 'role-label';
+        label.innerHTML = `<input type="checkbox" name="roles" value="${role.id}" checked> ${role.name}`;
+        roleContainer.appendChild(label);
+    });
+
+    let currentStep = 0;
+    let activeRolesToPlay = [];
+    let timerInterval = null;
+    let isPaused = false;
+
+    function speak(text, onEndCallback) {
+        if (!('speechSynthesis' in window)) {
+            alert('您的瀏覽器不支援語音功能，請使用 Chrome 或 Safari');
+            return;
+        }
+        window.speechSynthesis.cancel(); // 清除之前的語音
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'zh-TW';
+        utterance.rate = 1.0; // 語速
+        utterance.pitch = 1.0;
+        
+        utterance.onend = function() {
+            if (onEndCallback) onEndCallback();
+        };
+        
+        window.speechSynthesis.speak(utterance);
+    }
+
+    function startNightProcess() {
+        // 取得勾選的角色
+        const selectedCheckboxes = document.querySelectorAll('input[name="roles"]:checked');
+        const selectedIds = Array.from(selectedCheckboxes).map(cb => cb.value);
+
+        // 過濾出這場遊戲實際需要執行的步驟
+        activeRolesToPlay = nightOrder.filter(role => selectedIds.includes(role.id));
+
+        document.getElementById('setup-view').style.display = 'none';
+        document.getElementById('game-view').style.display = 'block';
+        document.getElementById('pause-btn').style.display = 'block';
+
+        currentStep = -1; // 從「天黑請閉眼」開始
+        runNextStep();
+    }
+
+    function runNextStep() {
+        if (isPaused) return;
+
+        if (currentStep === -1) {
+            document.getElementById('current-action').innerText = "天黑請閉眼...";
+            speak("天黑請閉眼，所有人，請把手放在桌上。", () => {
+                setTimeout(runNextStep, 1500);
+            });
+            currentStep++;
+        } else if (currentStep < activeRolesToPlay.length) {
+            const role = activeRolesToPlay[currentStep];
+            document.getElementById('current-action').innerText = `【 ${role.name} 階段中 】`;
+            
+            speak(role.script, () => {
+                // 唸完台詞後等待玩家操作的時間
+                setTimeout(runNextStep, role.wait);
+            });
+            currentStep++;
+        } else {
+            // 夜晚結束，進入討論
+            document.getElementById('current-action').innerText = "天亮請睜眼！開始自由討論！";
+            speak("天亮請睜眼！開始討論！", () => {
+                startDiscussionTimer();
+            });
+        }
+    }
+
+    function startDiscussionTimer() {
+        const totalSeconds = parseInt(document.getElementById('discussion-time').value);
+        let timeLeft = totalSeconds;
+        
+        const timerDisplay = document.getElementById('timer-display');
+        timerDisplay.style.display = 'block';
+        document.getElementById('pause-btn').style.display = 'none'; // 討論倒數時隱藏暫停
+
+        updateTimerText(timeLeft);
+
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            updateTimerText(timeLeft);
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                speak("時間到！請停止討論，準備投票！");
+                document.getElementById('current-action').innerText = "時間到！請進行投票！";
+            }
+        }, 1000);
+    }
+
+    function updateTimerText(seconds) {
+        const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+        const s = (seconds % 60).toString().padStart(2, '0');
+        document.getElementById('timer-display').innerText = `${m}:${s}`;
+    }
+
+    function pauseSpeech() {
+        isPaused = !isPaused;
+        if (isPaused) {
+            window.speechSynthesis.pause();
+            document.getElementById('current-action').innerText += " (已暫停)";
+        } else {
+            window.speechSynthesis.resume();
+            runNextStep();
+        }
+    }
+
+    function resetGame() {
+        window.speechSynthesis.cancel();
+        if (timerInterval) clearInterval(timerInterval);
+        isPaused = false;
+        document.getElementById('game-view').style.display = 'none';
+        document.getElementById('setup-view').style.display = 'block';
+        document.getElementById('timer-display').style.display = 'none';
+    }
+</script>
+
+</body>
+</html>
